@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video 360 VR</title>
+
+    <!-- A-Frame -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+    <style>
+      body {
+        margin: 0;
+        background: #000;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        color: #fff;
+      }
+
+      /* Bottone grosso per Quest */
+      #enter-vr-btn {
+        position: fixed;
+        z-index: 9999;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        border-radius: 999px;
+        border: none;
+        font-size: 16px;
+        font-weight: 600;
+        background: #ffffff;
+        color: #000000;
+        cursor: pointer;
+      }
+
+      #enter-vr-btn:active {
+        transform: translateX(-50%) scale(0.97);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Video 360 (no loop - stops at end) -->
+    <video
+      id="video360"
+      src="video.mp4"
+      playsinline
+      webkit-playsinline
+      crossorigin="anonymous"
+      preload="auto"
+    ></video>
+
+    <!-- Bottone manuale per entrare in VR -->
+    <button id="enter-vr-btn">Entra in VR</button>
+
+    <!-- Scena VR -->
+    <a-scene
+      vr-mode-ui="enabled: true"
+      xr-mode-ui="enabled: true"
+      embedded="false"
+    >
+      <a-videosphere id="sphere" src="#video360" rotation="0 -90 0"></a-videosphere>
+      <a-camera></a-camera>
+    </a-scene>
+
+    <script>
+      const video = document.getElementById("video360");
+      const scene = document.querySelector("a-scene");
+      const enterVrBtn = document.getElementById("enter-vr-btn");
+      let isInVR = false;
+
+      // Sblocco autoplay con primo tocco / click
+      const unlock = () => {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+        document.removeEventListener("click", unlock);
+      };
+      document.addEventListener("click", unlock);
+
+      // Quando il video finisce
+      video.addEventListener("ended", () => {
+        console.log("Video ended - ready to replay");
+      });
+
+      // Quando entro in VR → faccio partire il video
+      scene.addEventListener("enter-vr", () => {
+        isInVR = true;
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      });
+
+      // Quando esco dalla VR → metto in pausa
+      scene.addEventListener("exit-vr", () => {
+        isInVR = false;
+        video.pause();
+      });
+
+      // Bottone grosso "Entra in VR"
+      enterVrBtn.addEventListener("click", () => {
+        scene.enterVR();
+      });
+
+      // Gestione togli/rimetti il visore (tab nascosto/visibile)
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && isInVR) {
+          if (video.paused || video.ended) {
+            video.currentTime = 0;
+            video.play().catch(() => {});
+          }
+        } else {
+          video.pause();
+        }
+      });
+
+      // ===== META QUEST CONTROLLER SUPPORT =====
+      // Add controller entities for hand tracking
+      scene.addEventListener("loaded", () => {
+        const camera = document.querySelector("a-camera");
+
+        // Add controller entities if not present
+        if (!document.querySelector("[laser-controls]")) {
+          const leftHand = document.createElement("a-entity");
+          leftHand.setAttribute("laser-controls", "hand: left");
+          leftHand.setAttribute("raycaster", "objects: .clickable");
+          camera.appendChild(leftHand);
+
+          const rightHand = document.createElement("a-entity");
+          rightHand.setAttribute("laser-controls", "hand: right");
+          rightHand.setAttribute("raycaster", "objects: .clickable");
+          camera.appendChild(rightHand);
+        }
+      });
+
+      // Poll gamepad state for controller button presses
+      let lastButtonState = {};
+      let isPolling = false;
+
+      function checkGamepad() {
+        if (!isPolling) return;
+
+        const gamepads = navigator.getGamepads();
+        for (let i = 0; i < gamepads.length; i++) {
+          const gamepad = gamepads[i];
+          if (gamepad && gamepad.buttons) {
+            // Initialize button state tracking for this gamepad
+            if (!lastButtonState[i]) {
+              lastButtonState[i] = {
+                trigger: false,    // Button 0: Trigger
+                grip: false,       // Button 1: Grip
+                thumbstick: false, // Button 3: Thumbstick press
+                buttonA: false,    // Button 4: A/X button
+                buttonB: false     // Button 5: B/Y button
+              };
+            }
+
+            // TRIGGER (Button 0) - Play/Pause toggle
+            if (gamepad.buttons[0] && gamepad.buttons[0].pressed && !lastButtonState[i].trigger) {
+              if (video.paused || video.ended) {
+                if (video.ended) video.currentTime = 0;
+                video.play().catch(() => {});
+              } else {
+                video.pause();
+              }
+            }
+            lastButtonState[i].trigger = gamepad.buttons[0] ? gamepad.buttons[0].pressed : false;
+
+            // GRIP (Button 1) - Restart from beginning
+            if (gamepad.buttons[1] && gamepad.buttons[1].pressed && !lastButtonState[i].grip) {
+              video.currentTime = 0;
+              video.play().catch(() => {});
+            }
+            lastButtonState[i].grip = gamepad.buttons[1] ? gamepad.buttons[1].pressed : false;
+
+            // BUTTON A/X (Button 4) - Play/Resume
+            if (gamepad.buttons[4] && gamepad.buttons[4].pressed && !lastButtonState[i].buttonA) {
+              if (video.ended) video.currentTime = 0;
+              video.play().catch(() => {});
+            }
+            lastButtonState[i].buttonA = gamepad.buttons[4] ? gamepad.buttons[4].pressed : false;
+
+            // BUTTON B/Y (Button 5) - Pause
+            if (gamepad.buttons[5] && gamepad.buttons[5].pressed && !lastButtonState[i].buttonB) {
+              video.pause();
+            }
+            lastButtonState[i].buttonB = gamepad.buttons[5] ? gamepad.buttons[5].pressed : false;
+          }
+        }
+        requestAnimationFrame(checkGamepad);
+      }
+
+      // Start polling when entering VR
+      scene.addEventListener("enter-vr", () => {
+        isPolling = true;
+        checkGamepad();
+      });
+
+      // Stop polling when exiting VR
+      scene.addEventListener("exit-vr", () => {
+        isPolling = false;
+      });
+    </script>
+  </body>
+</html>
