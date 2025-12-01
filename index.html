@@ -37,6 +37,11 @@
     #enter-vr-btn:active {
       transform: translateX(-50%) scale(0.97);
     }
+
+    /* VR UI styles */
+    .vr-ui {
+      pointer-events: all;
+    }
   </style>
 </head>
 
@@ -51,17 +56,93 @@
 
   <!-- Scena VR -->
   <a-scene vr-mode-ui="enabled: true" xr-mode-ui="enabled: true" embedded="false">
+    <a-assets>
+      <!-- Preload assets -->
+      <img id="play-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E">
+      <img id="pause-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M6 4h4v16H6V4zm8 0h4v16h-4V4z'/%3E%3C/svg%3E">
+      <img id="restart-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'/%3E%3C/svg%3E">
+    </a-assets>
+
     <a-videosphere id="sphere" src="#video360" rotation="0 -90 0"></a-videosphere>
-    <a-camera></a-camera>
+
+    <!-- Camera with cursor and controllers -->
+    <a-camera>
+      <!-- VR UI Container (fixed to camera) -->
+      <a-entity id="vr-ui-container" position="0 -0.3 -1.5" visible="false">
+        <!-- Background panel -->
+        <a-plane
+          id="ui-background"
+          width="0.4"
+          height="0.4"
+          color="#000000"
+          opacity="0.7"
+          position="0 0 0">
+        </a-plane>
+
+        <!-- Play/Pause Button -->
+        <a-plane
+          id="play-pause-btn"
+          class="vr-ui clickable"
+          width="0.3"
+          height="0.3"
+          position="0 0 0.01"
+          src="#play-icon"
+          material="transparent: true"
+          animation__click="property: scale; from: 1 1 1; to: 0.9 0.9 0.9; dur: 100; startEvents: click"
+          animation__clickback="property: scale; from: 0.9 0.9 0.9; to: 1 1 1; dur: 100; startEvents: animationcomplete__click">
+        </a-plane>
+
+        <!-- Restart Button (shown at end) -->
+        <a-plane
+          id="restart-btn"
+          class="vr-ui clickable"
+          width="0.3"
+          height="0.3"
+          position="0 0 0.01"
+          src="#restart-icon"
+          material="transparent: true"
+          visible="false"
+          animation__click="property: scale; from: 1 1 1; to: 0.9 0.9 0.9; dur: 100; startEvents: click"
+          animation__clickback="property: scale; from: 0.9 0.9 0.9; to: 1 1 1; dur: 100; startEvents: animationcomplete__click">
+        </a-plane>
+      </a-entity>
+
+      <!-- Cursor for raycaster interaction -->
+      <a-entity
+        cursor="fuse: false; fuseTimeout: 0"
+        raycaster="objects: .clickable; far: 10"
+        position="0 0 -0.1">
+      </a-entity>
+    </a-camera>
+
+    <!-- Hand controllers -->
+    <a-entity
+      id="left-hand"
+      laser-controls="hand: left"
+      raycaster="objects: .clickable; far: 10; showLine: true; lineColor: white; lineOpacity: 0.8">
+    </a-entity>
+
+    <a-entity
+      id="right-hand"
+      laser-controls="hand: right"
+      raycaster="objects: .clickable; far: 10; showLine: true; lineColor: white; lineOpacity: 0.8">
+    </a-entity>
   </a-scene>
 
   <script>
+    // ===== CORE ELEMENTS =====
     const video = document.getElementById("video360");
     const scene = document.querySelector("a-scene");
     const enterVrBtn = document.getElementById("enter-vr-btn");
-    let isInVR = false;
 
-    // Sblocco autoplay con primo tocco / click
+    let isInVR = false;
+    let uiContainer = null;
+    let playPauseBtn = null;
+    let restartBtn = null;
+    let uiHideTimeout = null;
+    let lastControllerMove = 0;
+
+    // ===== INITIAL UNLOCK =====
     const unlock = () => {
       video.currentTime = 0;
       video.play().catch(() => { });
@@ -69,122 +150,191 @@
     };
     document.addEventListener("click", unlock);
 
-    // Quando il video finisce
-    video.addEventListener("ended", () => {
-      console.log("Video ended - ready to replay");
+    // ===== SCENE LOADED =====
+    scene.addEventListener("loaded", () => {
+      uiContainer = document.getElementById("vr-ui-container");
+      playPauseBtn = document.getElementById("play-pause-btn");
+      restartBtn = document.getElementById("restart-btn");
+
+      // Setup button click handlers
+      setupButtonHandlers();
+
+      // Setup controller movement detection
+      setupControllerMovement();
     });
 
-    // Quando entro in VR → faccio partire il video
+    // ===== BUTTON HANDLERS =====
+    function setupButtonHandlers() {
+      // Play/Pause button
+      playPauseBtn.addEventListener("click", () => {
+        if (video.paused) {
+          video.play().catch(() => { });
+        } else {
+          video.pause();
+        }
+        updateUI();
+      });
+
+      // Restart button
+      restartBtn.addEventListener("click", () => {
+        video.currentTime = 0;
+        video.play().catch(() => { });
+        updateUI();
+      });
+    }
+
+    // ===== CONTROLLER MOVEMENT DETECTION =====
+    function setupControllerMovement() {
+      const leftHand = document.getElementById("left-hand");
+      const rightHand = document.getElementById("right-hand");
+
+      let lastLeftPos = null;
+      let lastRightPos = null;
+
+      // Check for controller movement every frame
+      scene.addEventListener("render-target-loaded", () => {
+        setInterval(() => {
+          if (!isInVR) return;
+
+          let moved = false;
+
+          // Check left controller
+          if (leftHand && leftHand.object3D) {
+            const leftPos = leftHand.object3D.position;
+            if (lastLeftPos) {
+              const distance = lastLeftPos.distanceTo(leftPos);
+              if (distance > 0.01) {
+                moved = true;
+              }
+            }
+            lastLeftPos = leftPos.clone();
+          }
+
+          // Check right controller
+          if (rightHand && rightHand.object3D) {
+            const rightPos = rightHand.object3D.position;
+            if (lastRightPos) {
+              const distance = lastRightPos.distanceTo(rightPos);
+              if (distance > 0.01) {
+                moved = true;
+              }
+            }
+            lastRightPos = rightPos.clone();
+          }
+
+          // If controller moved, show UI
+          if (moved) {
+            onControllerMove();
+          }
+        }, 50); // Check every 50ms
+      });
+
+      // Also detect raycaster intersections
+      leftHand?.addEventListener("raycaster-intersection", onControllerMove);
+      rightHand?.addEventListener("raycaster-intersection", onControllerMove);
+    }
+
+    // ===== CONTROLLER MOVE HANDLER =====
+    function onControllerMove() {
+      lastControllerMove = Date.now();
+      showUI();
+
+      // Auto-hide UI after 3 seconds of no movement
+      clearTimeout(uiHideTimeout);
+      uiHideTimeout = setTimeout(() => {
+        if (Date.now() - lastControllerMove >= 3000) {
+          hideUI();
+        }
+      }, 3000);
+    }
+
+    // ===== UI VISIBILITY =====
+    function showUI() {
+      if (uiContainer && isInVR) {
+        uiContainer.setAttribute("visible", true);
+        updateUI();
+      }
+    }
+
+    function hideUI() {
+      if (uiContainer && isInVR) {
+        uiContainer.setAttribute("visible", false);
+      }
+    }
+
+    // ===== UPDATE UI BASED ON VIDEO STATE =====
+    function updateUI() {
+      if (!playPauseBtn || !restartBtn) return;
+
+      if (video.ended) {
+        // Show only restart button at end
+        playPauseBtn.setAttribute("visible", false);
+        restartBtn.setAttribute("visible", true);
+      } else {
+        // Show play/pause button during video
+        playPauseBtn.setAttribute("visible", true);
+        restartBtn.setAttribute("visible", false);
+
+        // Update play/pause icon
+        if (video.paused) {
+          playPauseBtn.setAttribute("src", "#play-icon");
+        } else {
+          playPauseBtn.setAttribute("src", "#pause-icon");
+        }
+      }
+    }
+
+    // ===== VIDEO EVENTS =====
+    video.addEventListener("play", updateUI);
+    video.addEventListener("pause", updateUI);
+    video.addEventListener("ended", () => {
+      video.pause();
+      updateUI();
+      showUI(); // Show UI when video ends
+    });
+
+    video.addEventListener("timeupdate", () => {
+      // When video starts playing from beginning, ensure UI is updated
+      if (video.currentTime < 0.5 && !video.paused) {
+        updateUI();
+      }
+    });
+
+    // ===== VR MODE EVENTS =====
     scene.addEventListener("enter-vr", () => {
       isInVR = true;
       video.currentTime = 0;
       video.play().catch(() => { });
+
+      // Show UI briefly when entering VR
+      setTimeout(() => {
+        showUI();
+        onControllerMove(); // Trigger auto-hide timer
+      }, 500);
     });
 
-    // Quando esco dalla VR → metto in pausa
     scene.addEventListener("exit-vr", () => {
       isInVR = false;
       video.pause();
+      hideUI();
+      clearTimeout(uiHideTimeout);
     });
 
-    // Bottone grosso "Entra in VR"
+    // ===== ENTER VR BUTTON =====
     enterVrBtn.addEventListener("click", () => {
       scene.enterVR();
     });
 
-    // Gestione togli/rimetti il visore (tab nascosto/visibile)
+    // ===== VISIBILITY CHANGE (HEADSET ON/OFF) =====
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && isInVR) {
         if (video.paused || video.ended) {
           video.currentTime = 0;
           video.play().catch(() => { });
         }
-      } else {
+      } else if (isInVR) {
         video.pause();
       }
-    });
-
-    // ===== META QUEST CONTROLLER SUPPORT =====
-    // Add controller entities for hand tracking
-    scene.addEventListener("loaded", () => {
-      const camera = document.querySelector("a-camera");
-
-      // Add controller entities if not present
-      if (!document.querySelector("[laser-controls]")) {
-        const leftHand = document.createElement("a-entity");
-        leftHand.setAttribute("laser-controls", "hand: left");
-        leftHand.setAttribute("raycaster", "objects: .clickable");
-        camera.appendChild(leftHand);
-
-        const rightHand = document.createElement("a-entity");
-        rightHand.setAttribute("laser-controls", "hand: right");
-        rightHand.setAttribute("raycaster", "objects: .clickable");
-        camera.appendChild(rightHand);
-      }
-    });
-
-    // Poll gamepad state for controller button presses
-    let lastButtonState = {};
-    let isPolling = true;
-
-    function checkGamepad() {
-      if (!isPolling) return;
-
-      const gamepads = navigator.getGamepads();
-      for (let i = 0; i < gamepads.length; i++) {
-        const gamepad = gamepads[i];
-        if (gamepad && gamepad.buttons) {
-          if (!lastButtonState[i]) {
-            lastButtonState[i] = {
-              trigger: false,
-              grip: false,
-              buttonA: false,
-              buttonB: false
-            };
-          }
-
-          // TRIGGER → toggle play/pause + restart when ended
-          if (gamepad.buttons[0]?.pressed && !lastButtonState[i].trigger) {
-            if (video.ended) {
-              video.currentTime = 0;
-              video.play().catch(() => { });
-            } else if (video.paused) {
-              video.play().catch(() => { });
-            } else {
-              video.pause();
-            }
-          }
-          lastButtonState[i].trigger = gamepad.buttons[0]?.pressed;
-
-          // GRIP → restart always
-          if (gamepad.buttons[1]?.pressed && !lastButtonState[i].grip) {
-            video.currentTime = 0;
-            video.play().catch(() => { });
-          }
-          lastButtonState[i].grip = gamepad.buttons[1]?.pressed;
-
-          // A → play
-          if (gamepad.buttons[4]?.pressed && !lastButtonState[i].buttonA) {
-            if (video.ended) video.currentTime = 0;
-            video.play().catch(() => { });
-          }
-          lastButtonState[i].buttonA = gamepad.buttons[4]?.pressed;
-
-          // B → pause
-          if (gamepad.buttons[5]?.pressed && !lastButtonState[i].buttonB) {
-            video.pause();
-          }
-          lastButtonState[i].buttonB = gamepad.buttons[5]?.pressed;
-        }
-      }
-
-      requestAnimationFrame(checkGamepad);
-    }
-
-    checkGamepad();
-
-    video.addEventListener("ended", () => {
-      video.pause();
     });
   </script>
 </body>
