@@ -47,9 +47,14 @@
 
 <body>
   <!-- Video 360 (no loop - stops at end) -->
-  <video id="video360"
-    src="https://storage.googleapis.com/store-screenapp-production/vid/692d78cbd4173a98fcfca636/9f4fe084-1ab3-4316-bd57-ded6c93bf943.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=GOOG1EINEQV5X2QGY62PSZMBMUR7IGGVLKNDB6ABP5GL6O6FKO76DWA2IE3SB%2F20251201%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20251201T111528Z&X-Amz-Expires=604800&X-Amz-Signature=70d99db652b436b8e80775b6a4bdcd1daac33913306e6e6e886fdbb15c00514a&X-Amz-SignedHeaders=host&response-content-type=attachment%3B%20filename%3D%229f4fe084-1ab3-4316-bd57-ded6c93bf943.mp4%22%3B%20filename%2A%3D%20UTF-8%27%27video.mp4%3B&x-amz-checksum-mode=ENABLED&x-id=GetObject"
-    playsinline webkit-playsinline crossorigin="anonymous" preload="auto"></video>
+  <video
+    id="video360"
+    src="https://drive.google.com/uc?export=download&id=1N5SrZjkM5IDBSMBFHOkX8aKie-74BvVe"
+    playsinline
+    webkit-playsinline
+    crossorigin="anonymous"
+    preload="auto">
+  </video>
 
   <!-- Bottone manuale per entrare in VR -->
   <button id="enter-vr-btn">Entra in VR</button>
@@ -72,36 +77,36 @@
         <!-- Background panel -->
         <a-plane
           id="ui-background"
-          width="0.4"
-          height="0.4"
+          width="0.7"
+          height="0.25"
           color="#000000"
           opacity="0.7"
           position="0 0 0">
         </a-plane>
 
-        <!-- Play/Pause Button -->
+        <!-- Play/Pause Button (sinistra) -->
         <a-plane
           id="play-pause-btn"
           class="vr-ui clickable"
-          width="0.3"
-          height="0.3"
-          position="0 0 0.01"
+          width="0.25"
+          height="0.25"
+          position="-0.18 0 0.01"
           src="#play-icon"
           material="transparent: true"
           animation__click="property: scale; from: 1 1 1; to: 0.9 0.9 0.9; dur: 100; startEvents: click"
           animation__clickback="property: scale; from: 0.9 0.9 0.9; to: 1 1 1; dur: 100; startEvents: animationcomplete__click">
         </a-plane>
 
-        <!-- Restart Button (shown at end) -->
+        <!-- Restart Button (destra) -->
         <a-plane
           id="restart-btn"
           class="vr-ui clickable"
-          width="0.3"
-          height="0.3"
-          position="0 0 0.01"
+          width="0.25"
+          height="0.25"
+          position="0.18 0 0.01"
           src="#restart-icon"
           material="transparent: true"
-          visible="false"
+          visible="true"
           animation__click="property: scale; from: 1 1 1; to: 0.9 0.9 0.9; dur: 100; startEvents: click"
           animation__clickback="property: scale; from: 0.9 0.9 0.9; to: 1 1 1; dur: 100; startEvents: animationcomplete__click">
         </a-plane>
@@ -175,7 +180,7 @@
         updateUI();
       });
 
-      // Restart button
+      // Restart button (sempre disponibile)
       restartBtn.addEventListener("click", () => {
         video.currentTime = 0;
         video.play().catch(() => { });
@@ -266,21 +271,15 @@
     function updateUI() {
       if (!playPauseBtn || !restartBtn) return;
 
-      if (video.ended) {
-        // Show only restart button at end
-        playPauseBtn.setAttribute("visible", false);
-        restartBtn.setAttribute("visible", true);
-      } else {
-        // Show play/pause button during video
-        playPauseBtn.setAttribute("visible", true);
-        restartBtn.setAttribute("visible", false);
+      // Mostra SEMPRE entrambi i bottoni quando la UI è visibile
+      playPauseBtn.setAttribute("visible", true);
+      restartBtn.setAttribute("visible", true);
 
-        // Update play/pause icon
-        if (video.paused) {
-          playPauseBtn.setAttribute("src", "#play-icon");
-        } else {
-          playPauseBtn.setAttribute("src", "#pause-icon");
-        }
+      // Aggiorna icona play/pause
+      if (video.paused) {
+        playPauseBtn.setAttribute("src", "#play-icon");
+      } else {
+        playPauseBtn.setAttribute("src", "#pause-icon");
       }
     }
 
@@ -294,7 +293,6 @@
     });
 
     video.addEventListener("timeupdate", () => {
-      // When video starts playing from beginning, ensure UI is updated
       if (video.currentTime < 0.5 && !video.paused) {
         updateUI();
       }
@@ -306,7 +304,6 @@
       video.currentTime = 0;
       video.play().catch(() => { });
 
-      // Show UI briefly when entering VR
       setTimeout(() => {
         showUI();
         onControllerMove(); // Trigger auto-hide timer
@@ -338,5 +335,4 @@
     });
   </script>
 </body>
-
 </html>
